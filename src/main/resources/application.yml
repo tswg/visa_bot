@@ -1,20 +1,14 @@
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/visa_bot
-    username: postgres
-    password: postgres
+    username: visa_bot
+    password: visa_bot
   jpa:
     hibernate:
       ddl-auto: update
-    properties:
-      hibernate:
-        format_sql: true
-  main:
-    banner-mode: "off"
+    show-sql: true
+
 telegram:
   bot:
-    username: ${TELEGRAM_BOT_USERNAME:visa_slot_bot}
-    token: ${TELEGRAM_BOT_TOKEN:change-me}
-app:
-  slots:
-    check-interval-ms: 120000
+    username: YOUR_BOT_USERNAME
+    token: YOUR_BOT_TOKEN
