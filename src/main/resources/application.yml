@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/visa_bot
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+  main:
+    banner-mode: "off"
+telegram:
+  bot:
+    username: ${TELEGRAM_BOT_USERNAME:visa_slot_bot}
+    token: ${TELEGRAM_BOT_TOKEN:change-me}
+app:
+  slots:
+    check-interval-ms: 120000
