@@ -10,6 +10,7 @@ import com.example.visabot.repository.UserRepository;
 import com.example.visabot.repository.VisaCenterRepository;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,11 +51,15 @@ public class TelegramBot extends TelegramLongPollingBot {
         Long chatId = update.getMessage().getChatId();
         String username = update.getMessage().getFrom() != null ? update.getMessage().getFrom().getUserName() : null;
 
-        switch (text) {
-            case "/start" -> handleStart(chatId, username);
-            case "/subscribe" -> handleSubscribe(chatId);
-            case "/status" -> handleStatus(chatId);
-            default -> handleUnknown(chatId);
+        if (text.startsWith("/subscribe")) {
+            handleSubscribe(chatId, text);
+        } else {
+            switch (text) {
+                case "/start" -> handleStart(chatId, username);
+                case "/status" -> handleStatus(chatId);
+                case "/centers" -> handleCenters(chatId);
+                default -> handleUnknown(chatId);
+            }
         }
     }
 
@@ -72,13 +77,53 @@ public class TelegramBot extends TelegramLongPollingBot {
         sendMessage(chatId, welcome);
     }
 
-    private void handleSubscribe(Long chatId) {
+    private void handleSubscribe(Long chatId, String text) {
         Optional<User> userOpt = userRepository.findByTelegramId(chatId);
         if (userOpt.isEmpty()) {
             sendMessage(chatId, "Пожалуйста, сначала отправьте /start");
             return;
         }
         User user = userOpt.get();
+
+        String[] parts = text.split("\\s+");
+        if (parts.length == 1) {
+            handleDefaultSubscription(chatId, user);
+            return;
+        }
+
+        int index;
+        try {
+            index = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            sendMessage(chatId, "Некорректный номер центра. Сначала посмотри список через /centers.");
+            return;
+        }
+
+        List<VisaCenter> centers = visaCenterRepository.findByActiveTrue();
+        if (index < 1 || index > centers.size()) {
+            sendMessage(chatId, "Некорректный номер центра. Сначала посмотри список через /centers.");
+            return;
+        }
+
+        VisaCenter center = centers.get(index - 1);
+        Subscription subscription = subscriptionRepository
+                .findByUserAndVisaCenter(user, center)
+                .orElseGet(() -> {
+                    Subscription sub = new Subscription();
+                    sub.setUser(user);
+                    sub.setVisaCenter(center);
+                    return sub;
+                });
+        subscription.setValidTo(LocalDateTime.now().plusDays(7));
+        subscription.setStatus(SubscriptionStatus.ACTIVE);
+        subscriptionRepository.save(subscription);
+
+        sendMessage(chatId, "Подписка на центр "
+                + center.getCountry() + " / " + center.getCity() + " — " + center.getName()
+                + " активна до " + subscription.getValidTo().format(DATE_FORMATTER));
+    }
+
+    private void handleDefaultSubscription(Long chatId, User user) {
         Optional<VisaCenter> centerOpt = visaCenterRepository
                 .findByCountryAndCityAndName("Finland", "Helsinki", "Test center");
         if (centerOpt.isEmpty()) {
@@ -98,8 +143,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         subscription.setStatus(SubscriptionStatus.ACTIVE);
         subscriptionRepository.save(subscription);
 
-        sendMessage(chatId,
-                "Подписка активна до " + subscription.getValidTo().format(DATE_FORMATTER));
+        sendMessage(chatId, "Подписка активна до " + subscription.getValidTo().format(DATE_FORMATTER));
     }
 
     private void handleStatus(Long chatId) {
@@ -109,24 +153,47 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
         User user = userOpt.get();
-        Optional<VisaCenter> centerOpt = visaCenterRepository
-                .findByCountryAndCityAndName("Finland", "Helsinki", "Test center");
-        if (centerOpt.isEmpty()) {
-            sendMessage(chatId, "Тестовый визовый центр не найден");
+        List<Subscription> subscriptions = subscriptionRepository
+                .findByUserAndStatusAndValidToAfter(user, SubscriptionStatus.ACTIVE, LocalDateTime.now());
+
+        if (subscriptions.isEmpty()) {
+            sendMessage(chatId, "Активных подписок нет.");
             return;
         }
-        Optional<Subscription> subscriptionOpt = subscriptionRepository.findByUserAndVisaCenter(user, centerOpt.get());
-        if (subscriptionOpt.isEmpty() || subscriptionOpt.get().getValidTo().isBefore(LocalDateTime.now())
-                || subscriptionOpt.get().getStatus() != SubscriptionStatus.ACTIVE) {
-            sendMessage(chatId, "Активной подписки нет");
+
+        StringBuilder builder = new StringBuilder("Ваши активные подписки:\n\n");
+        subscriptions.forEach(subscription -> builder.append("- ")
+                .append(subscription.getVisaCenter().getCountry()).append(" / ")
+                .append(subscription.getVisaCenter().getCity()).append(" — ")
+                .append(subscription.getVisaCenter().getName()).append(", до ")
+                .append(subscription.getValidTo().format(DATE_FORMATTER))
+                .append("\n"));
+        sendMessage(chatId, builder.toString().trim());
+    }
+
+    private void handleCenters(Long chatId) {
+        List<VisaCenter> centers = visaCenterRepository.findByActiveTrue();
+        if (centers.isEmpty()) {
+            sendMessage(chatId, "Нет доступных визовых центров.");
             return;
         }
-        Subscription subscription = subscriptionOpt.get();
-        sendMessage(chatId, "Подписка активна до " + subscription.getValidTo().format(DATE_FORMATTER));
+
+        StringBuilder builder = new StringBuilder("Доступные визовые центры:\n\n");
+        for (int i = 0; i < centers.size(); i++) {
+            VisaCenter center = centers.get(i);
+            builder.append(i + 1).append(") ")
+                    .append(center.getCountry()).append(" / ")
+                    .append(center.getCity()).append(" — ")
+                    .append(center.getName()).append("\n");
+        }
+        builder.append("\nЧтобы подписаться, отправь команду: /subscribe <номер>\n")
+                .append("Пример: /subscribe 1");
+
+        sendMessage(chatId, builder.toString());
     }
 
     private void handleUnknown(Long chatId) {
-        sendMessage(chatId, "Неизвестная команда. Доступные: /start, /subscribe, /status");
+        sendMessage(chatId, "Неизвестная команда. Доступные: /start, /subscribe, /status, /centers");
     }
 
     private void sendMessage(Long chatId, String text) {
