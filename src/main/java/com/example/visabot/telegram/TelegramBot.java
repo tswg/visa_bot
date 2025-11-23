@@ -21,8 +21,8 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
@@ -218,7 +218,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    public void sendMessage(Long chatId, String text, ReplyMarkup replyMarkup) {
+    public void sendMessage(Long chatId, String text, ReplyKeyboard replyMarkup) {
         SendMessage message = SendMessage.builder()
                 .chatId(chatId.toString())
                 .text(text)
