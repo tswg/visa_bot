@@ -2,6 +2,7 @@ package com.example.visabot.telegram;
 
 import com.example.visabot.config.BotProperties;
 import com.example.visabot.entity.Subscription;
+import com.example.visabot.entity.SubscriptionPlan;
 import com.example.visabot.entity.SubscriptionStatus;
 import com.example.visabot.entity.User;
 import com.example.visabot.entity.VisaCenter;
@@ -70,6 +71,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                 case "/start" -> handleStart(chatId, username);
                 case "/status", "📝 Мои подписки" -> handleStatus(chatId);
                 case "/centers", "📍 Визовые центры" -> handleCenters(chatId);
+                case "/premium", "⭐ PREMIUM" -> handlePremium(chatId);
                 default -> handleUnknown(chatId);
             }
         }
@@ -85,7 +87,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         String welcome = "Привет! Я бот, который уведомляет, когда появляются свободные слоты в визовых центрах.\n"
                 + "Доступен тестовый центр: Finland / Helsinki.\n"
-                + "Команды: /centers — список доступных центров, /subscribe — подписка, /status — статус подписки.\n"
+                + "Команды: /centers — список доступных центров, /subscribe — подписка, /status — статус подписки, /premium — приоритетные уведомления.\n"
                 + "Можно подписаться на номер центра через /subscribe <номер>.";
         sendMessage(chatId, welcome, createMainMenuKeyboard());
     }
@@ -152,6 +154,9 @@ public class TelegramBot extends TelegramLongPollingBot {
                 });
         subscription.setValidTo(LocalDateTime.now().plusDays(7));
         subscription.setStatus(SubscriptionStatus.ACTIVE);
+        if (subscription.getPlan() == null) {
+            subscription.setPlan(SubscriptionPlan.BASIC);
+        }
         return subscriptionRepository.save(subscription);
     }
 
@@ -180,6 +185,28 @@ public class TelegramBot extends TelegramLongPollingBot {
         sendMessage(chatId, builder.toString().trim());
     }
 
+    private void handlePremium(Long chatId) {
+        Optional<User> userOpt = userRepository.findByTelegramId(chatId);
+        if (userOpt.isEmpty()) {
+            sendMessage(chatId, "Пожалуйста, сначала отправьте /start");
+            return;
+        }
+
+        User user = userOpt.get();
+        List<Subscription> subscriptions = subscriptionRepository
+                .findByUserAndStatusAndValidToAfter(user, SubscriptionStatus.ACTIVE, LocalDateTime.now());
+
+        if (subscriptions.isEmpty()) {
+            sendMessage(chatId, "У вас нет активных подписок для обновления.");
+            return;
+        }
+
+        subscriptions.forEach(subscription -> subscription.setPlan(SubscriptionPlan.PREMIUM));
+        subscriptionRepository.saveAll(subscriptions);
+
+        sendMessage(chatId, "Ваши активные подписки переведены на PREMIUM. Теперь уведомления будут приходить раньше обычных пользователей.");
+    }
+
     private void handleCenters(Long chatId) {
         List<VisaCenter> centers = visaCenterRepository.findByActiveTrue();
         if (centers.isEmpty()) {
@@ -203,7 +230,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void handleUnknown(Long chatId) {
-        sendMessage(chatId, "Неизвестная команда. Доступные: /start, /subscribe, /status, /centers");
+        sendMessage(chatId, "Неизвестная команда. Доступные: /start, /subscribe, /status, /centers, /premium");
     }
 
     public void sendMessage(Long chatId, String text) {
@@ -238,9 +265,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         KeyboardRow subscriptionsRow = new KeyboardRow();
         subscriptionsRow.add(new KeyboardButton("📝 Мои подписки"));
 
+        KeyboardRow premiumRow = new KeyboardRow();
+        premiumRow.add(new KeyboardButton("⭐ PREMIUM"));
+
         ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
         keyboardMarkup.setResizeKeyboard(true);
-        keyboardMarkup.setKeyboard(List.of(centersRow, subscriptionsRow));
+        keyboardMarkup.setKeyboard(List.of(centersRow, subscriptionsRow, premiumRow));
         return keyboardMarkup;
     }
 

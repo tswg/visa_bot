@@ -39,7 +39,17 @@ public class Subscription {
     @Enumerated(EnumType.STRING)
     private SubscriptionStatus status;
 
+    @Enumerated(EnumType.STRING)
+    private SubscriptionPlan plan = SubscriptionPlan.BASIC;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
+
+    public SubscriptionPlan getPlan() {
+        if (plan == null) {
+            plan = SubscriptionPlan.BASIC;
+        }
+        return plan;
+    }
 }
