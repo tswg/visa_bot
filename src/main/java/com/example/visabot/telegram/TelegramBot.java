@@ -83,6 +83,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                 case "/centers", "📍 Визовые центры" -> handleCenters(chatId);
                 case "/premium", "⭐ PREMIUM" -> handlePremium(chatId);
                 case "/buy_premium", "⭐ Купить PREMIUM" -> handleBuyPremium(chatId);
+                case "/settings", "⚙ Настройки" -> handleSettings(chatId);
                 default -> handleUnknown(chatId);
             }
         }
@@ -93,6 +94,8 @@ public class TelegramBot extends TelegramLongPollingBot {
             User user = new User();
             user.setTelegramId(chatId);
             user.setUsername(username);
+            user.setNotificationsEnabled(true);
+            user.setDndNightEnabled(false);
             return userRepository.save(user);
         });
 
@@ -137,6 +140,17 @@ public class TelegramBot extends TelegramLongPollingBot {
         sendMessage(chatId, "Подписка на центр "
                 + center.getCountry() + " / " + center.getCity() + " — " + center.getName()
                 + " активна до " + subscription.getValidTo().format(DATE_FORMATTER));
+    }
+
+    private void handleSettings(Long chatId) {
+        Optional<User> userOpt = userRepository.findByTelegramId(chatId);
+        if (userOpt.isEmpty()) {
+            sendMessage(chatId, "Пожалуйста, сначала отправьте /start");
+            return;
+        }
+
+        User user = userOpt.get();
+        sendSettingsMessage(chatId, user);
     }
 
     private void handleDefaultSubscription(Long chatId, User user) {
@@ -327,10 +341,55 @@ public class TelegramBot extends TelegramLongPollingBot {
         KeyboardRow buyPremiumRow = new KeyboardRow();
         buyPremiumRow.add(new KeyboardButton("⭐ Купить PREMIUM"));
 
+        KeyboardRow settingsRow = new KeyboardRow();
+        settingsRow.add(new KeyboardButton("⚙ Настройки"));
+
         ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
         keyboardMarkup.setResizeKeyboard(true);
-        keyboardMarkup.setKeyboard(List.of(centersRow, subscriptionsRow, premiumRow, buyPremiumRow));
+        keyboardMarkup.setKeyboard(List.of(centersRow, subscriptionsRow, premiumRow, buyPremiumRow, settingsRow));
         return keyboardMarkup;
+    }
+
+    private void sendSettingsMessage(Long chatId, User user) {
+        sendMessage(chatId, buildSettingsText(user), buildSettingsKeyboard(user));
+    }
+
+    private String buildSettingsText(User user) {
+        boolean notificationsEnabled = isNotificationsEnabled(user);
+        boolean dndEnabled = isDndNightEnabled(user);
+
+        return "Настройки уведомлений:\n\n"
+                + "Уведомления: " + (notificationsEnabled ? "ВКЛ" : "ВЫКЛ") + "\n"
+                + "Не беспокоить ночью (23:00–08:00): " + (dndEnabled ? "ВКЛ" : "ВЫКЛ");
+    }
+
+    private InlineKeyboardMarkup buildSettingsKeyboard(User user) {
+        boolean notificationsEnabled = isNotificationsEnabled(user);
+        boolean dndNightEnabled = isDndNightEnabled(user);
+
+        InlineKeyboardButton toggleNotificationsButton = InlineKeyboardButton.builder()
+                .text(notificationsEnabled ? "🔕 Отключить уведомления" : "🔔 Включить уведомления")
+                .callbackData("settings:toggle_notifications")
+                .build();
+
+        InlineKeyboardButton toggleDndNightButton = InlineKeyboardButton.builder()
+                .text(dndNightEnabled
+                        ? "☀️ Выключить режим 'Ночью'"
+                        : "🌙 Включить режим 'Ночью не беспокоить'")
+                .callbackData("settings:toggle_dnd_night")
+                .build();
+
+        InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
+        keyboardMarkup.setKeyboard(List.of(List.of(toggleNotificationsButton), List.of(toggleDndNightButton)));
+        return keyboardMarkup;
+    }
+
+    private boolean isNotificationsEnabled(User user) {
+        return user.getNotificationsEnabled() == null || user.getNotificationsEnabled();
+    }
+
+    private boolean isDndNightEnabled(User user) {
+        return Boolean.TRUE.equals(user.getDndNightEnabled());
     }
 
     private InlineKeyboardMarkup buildCentersKeyboard(List<VisaCenter> centers) {
@@ -384,6 +443,10 @@ public class TelegramBot extends TelegramLongPollingBot {
             handleUnsubscribeCallback(callbackQuery, callbackData.substring("unsubscribe:".length()));
         } else if (callbackData.equals("unsubscribe_all")) {
             handleUnsubscribeAllCallback(callbackQuery);
+        } else if (callbackData.equals("settings:toggle_notifications")) {
+            handleToggleNotificationsCallback(callbackQuery);
+        } else if (callbackData.equals("settings:toggle_dnd_night")) {
+            handleToggleDndNightCallback(callbackQuery);
         }
     }
 
@@ -409,6 +472,8 @@ public class TelegramBot extends TelegramLongPollingBot {
             User newUser = new User();
             newUser.setTelegramId(telegramId);
             newUser.setUsername(username);
+            newUser.setNotificationsEnabled(true);
+            newUser.setDndNightEnabled(false);
             return userRepository.save(newUser);
         });
 
@@ -530,6 +595,44 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         answerCallback(callbackQuery, "Все подписки отменены");
         sendMessage(callbackQuery.getMessage().getChatId(), "Все ваши активные подписки отменены.");
+    }
+
+    private void handleToggleNotificationsCallback(CallbackQuery callbackQuery) {
+        Long telegramId = callbackQuery.getFrom().getId();
+        Optional<User> userOpt = userRepository.findByTelegramId(telegramId);
+        if (userOpt.isEmpty()) {
+            answerCallback(callbackQuery, "Пожалуйста, отправьте /start");
+            return;
+        }
+
+        User user = userOpt.get();
+        boolean currentlyEnabled = isNotificationsEnabled(user);
+        user.setNotificationsEnabled(!currentlyEnabled);
+        userRepository.save(user);
+
+        String response = currentlyEnabled ? "Уведомления отключены." : "Уведомления включены.";
+        answerCallback(callbackQuery, response);
+        sendSettingsMessage(callbackQuery.getMessage().getChatId(), user);
+    }
+
+    private void handleToggleDndNightCallback(CallbackQuery callbackQuery) {
+        Long telegramId = callbackQuery.getFrom().getId();
+        Optional<User> userOpt = userRepository.findByTelegramId(telegramId);
+        if (userOpt.isEmpty()) {
+            answerCallback(callbackQuery, "Пожалуйста, отправьте /start");
+            return;
+        }
+
+        User user = userOpt.get();
+        boolean currentlyEnabled = isDndNightEnabled(user);
+        user.setDndNightEnabled(!currentlyEnabled);
+        userRepository.save(user);
+
+        String response = currentlyEnabled
+                ? "Режим 'Ночью не беспокоить' выключен."
+                : "Режим 'Ночью не беспокоить' включен.";
+        answerCallback(callbackQuery, response);
+        sendSettingsMessage(callbackQuery.getMessage().getChatId(), user);
     }
 
     private void handlePaymentSuccess(Long chatId, String text) {
