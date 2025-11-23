@@ -29,6 +29,9 @@ public class VisaCenter {
 
     private String provider;
 
+    @Column(name = "check_url")
+    private String checkUrl;
+
     private boolean active;
 
     @CreationTimestamp
