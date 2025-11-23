@@ -19,7 +19,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 @Service
 @RequiredArgsConstructor
@@ -55,14 +54,9 @@ public class NotificationService {
         notification.setSlotEvent(event);
         notification.setMessage(message);
 
-        try {
-            telegramBot.sendMessage(user.getTelegramId(), message);
-            notification.setStatus(NotificationStatus.SENT);
-            log.info("Notification sent to user {} for center {}", user.getId(), event.getVisaCenter().getId());
-        } catch (TelegramApiException e) {
-            log.error("Failed to send notification to user {}", user.getId(), e);
-            notification.setStatus(NotificationStatus.FAILED);
-        }
+        telegramBot.sendMessage(user.getTelegramId(), message);
+        notification.setStatus(NotificationStatus.SENT);
+        log.info("Notification sent to user {} for center {}", user.getId(), event.getVisaCenter().getId());
 
         notificationRepository.save(notification);
     }
