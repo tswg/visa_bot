@@ -3,13 +3,14 @@ package com.example.visabot.service;
 import com.example.visabot.entity.Notification;
 import com.example.visabot.entity.NotificationStatus;
 import com.example.visabot.entity.SlotEvent;
-import com.example.visabot.entity.SlotSnapshot;
 import com.example.visabot.entity.Subscription;
 import com.example.visabot.entity.SubscriptionStatus;
 import com.example.visabot.entity.User;
 import com.example.visabot.entity.VisaCenter;
+import com.example.visabot.entity.SlotSnapshot;
 import com.example.visabot.repository.NotificationRepository;
 import com.example.visabot.repository.SubscriptionRepository;
+import com.example.visabot.repository.UserRepository;
 import com.example.visabot.telegram.TelegramBot;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,8 +19,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +27,7 @@ public class NotificationService {
 
     private final SubscriptionRepository subscriptionRepository;
     private final NotificationRepository notificationRepository;
+    private final UserRepository userRepository;
     private final TelegramBot telegramBot;
 
     public void notifySubscribersAboutNewSlots(VisaCenter center, SlotEvent event) {
@@ -40,7 +40,7 @@ public class NotificationService {
     }
 
     private void sendNotification(Subscription subscription, SlotEvent event) {
-        User user = subscription.getUser();
+        User user = resolveUser(subscription);
         if (user == null || user.getTelegramId() == null) {
             log.warn("Skipping notification for subscription {} because user or telegramId is missing", subscription.getId());
             return;
@@ -54,19 +54,19 @@ public class NotificationService {
         notification.setSlotEvent(event);
         notification.setMessage(message);
 
-        try {
-            SendMessage sendMessage = SendMessage.builder()
-                    .chatId(user.getTelegramId().toString())
-                    .text(message)
-                    .build();
-            telegramBot.execute(sendMessage);
-            notification.setStatus(NotificationStatus.SENT);
-        } catch (TelegramApiException e) {
-            log.error("Failed to send notification to user {}", user.getId(), e);
-            notification.setStatus(NotificationStatus.FAILED);
-        }
+        telegramBot.sendMessage(user.getTelegramId(), message);
+        notification.setStatus(NotificationStatus.SENT);
+        log.info("Notification sent to user {} for center {}", user.getId(), event.getVisaCenter().getId());
 
         notificationRepository.save(notification);
+    }
+
+    private User resolveUser(Subscription subscription) {
+        User subscriptionUser = subscription.getUser();
+        if (subscriptionUser == null) {
+            return null;
+        }
+        return userRepository.findById(subscriptionUser.getId()).orElse(subscriptionUser);
     }
 
     private String buildMessage(SlotEvent event) {
