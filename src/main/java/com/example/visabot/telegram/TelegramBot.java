@@ -180,7 +180,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         User user = userOpt.get();
         LocalDateTime now = LocalDateTime.now();
         List<Subscription> subscriptions = subscriptionRepository
-                .findByUserAndStatusAndValidToAfter(user, SubscriptionStatus.ACTIVE, now);
+                .findActiveWithVisaCenter(user, SubscriptionStatus.ACTIVE, now);
 
         if (subscriptions.isEmpty()) {
             sendMessage(chatId, "Активных подписок нет.");
@@ -484,7 +484,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
         User user = userOpt.get();
 
-        Optional<Subscription> subscriptionOpt = subscriptionRepository.findByIdAndUser(subscriptionId, user);
+        Optional<Subscription> subscriptionOpt = subscriptionRepository.findByIdAndUserWithVisaCenter(subscriptionId, user);
         if (subscriptionOpt.isEmpty()) {
             answerCallback(callbackQuery, "Подписка не найдена");
             sendMessage(callbackQuery.getMessage().getChatId(), "Подписка не найдена или уже отменена.");

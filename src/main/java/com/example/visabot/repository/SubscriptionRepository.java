@@ -20,6 +20,11 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
 
     Optional<Subscription> findByIdAndUser(Long id, User user);
 
+    @Query("select s from Subscription s "
+            + "join fetch s.visaCenter vc "
+            + "where s.id = :id and s.user = :user")
+    Optional<Subscription> findByIdAndUserWithVisaCenter(@Param("id") Long id, @Param("user") User user);
+
     List<Subscription> findByUserAndStatusAndValidToAfter(User user, SubscriptionStatus status, LocalDateTime now);
 
     @Query("select s from Subscription s "
