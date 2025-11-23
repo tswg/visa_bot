@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5433/visa_bot
-    username: visa_bot
-    password: AmericanPie13###
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/visa_bot}
+    username: ${SPRING_DATASOURCE_USERNAME:visa_bot}
+    password: ${SPRING_DATASOURCE_PASSWORD:visa_bot}
   jpa:
     hibernate:
       ddl-auto: update
@@ -10,5 +10,5 @@ spring:
 
 telegram:
   bot:
-    username: visa_best_helper_bot
-    token: 8031980944:AAEqD8ECIRooxYfHxWu5t45qUoE9dnBF5SM
+    username: ${TELEGRAM_BOT_USERNAME:your_local_bot_username}
+    token: ${TELEGRAM_BOT_TOKEN:your_local_bot_token}
