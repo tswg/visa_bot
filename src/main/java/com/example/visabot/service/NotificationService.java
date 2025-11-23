@@ -4,6 +4,7 @@ import com.example.visabot.entity.Notification;
 import com.example.visabot.entity.NotificationStatus;
 import com.example.visabot.entity.SlotEvent;
 import com.example.visabot.entity.Subscription;
+import com.example.visabot.entity.SubscriptionPlan;
 import com.example.visabot.entity.SubscriptionStatus;
 import com.example.visabot.entity.User;
 import com.example.visabot.entity.VisaCenter;
@@ -31,10 +32,19 @@ public class NotificationService {
     private final TelegramBot telegramBot;
 
     public void notifySubscribersAboutNewSlots(VisaCenter center, SlotEvent event) {
-        List<Subscription> subscriptions = subscriptionRepository
-                .findActiveByVisaCenterWithUser(center, SubscriptionStatus.ACTIVE, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
 
-        for (Subscription subscription : subscriptions) {
+        List<Subscription> premiumSubscriptions = subscriptionRepository
+                .findActiveByVisaCenterWithUserAndPlan(center, SubscriptionStatus.ACTIVE, SubscriptionPlan.PREMIUM, now);
+
+        List<Subscription> basicSubscriptions = subscriptionRepository
+                .findActiveByVisaCenterWithUserAndPlan(center, SubscriptionStatus.ACTIVE, SubscriptionPlan.BASIC, now);
+
+        for (Subscription subscription : premiumSubscriptions) {
+            sendNotification(subscription, event);
+        }
+
+        for (Subscription subscription : basicSubscriptions) {
             sendNotification(subscription, event);
         }
     }
@@ -56,7 +66,8 @@ public class NotificationService {
 
         telegramBot.sendMessage(user.getTelegramId(), message);
         notification.setStatus(NotificationStatus.SENT);
-        log.info("Notification sent to user {} for center {}", user.getId(), event.getVisaCenter().getId());
+        log.info("Notification sent to user {} for center {} with plan {}", user.getId(),
+                event.getVisaCenter().getId(), subscription.getPlan());
 
         notificationRepository.save(notification);
     }

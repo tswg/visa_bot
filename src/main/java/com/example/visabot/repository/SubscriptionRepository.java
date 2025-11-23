@@ -1,6 +1,7 @@
 package com.example.visabot.repository;
 
 import com.example.visabot.entity.Subscription;
+import com.example.visabot.entity.SubscriptionPlan;
 import com.example.visabot.entity.SubscriptionStatus;
 import com.example.visabot.entity.User;
 import com.example.visabot.entity.VisaCenter;
@@ -12,7 +13,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface SubscriptionRepository extends JpaRepository<Subscription, Long> {
-    List<Subscription> findByVisaCenterAndStatusAndValidToAfter(VisaCenter visaCenter, SubscriptionStatus status, LocalDateTime now);
+    List<Subscription> findByVisaCenterAndStatusAndValidToAfter(VisaCenter visaCenter, SubscriptionStatus status,
+            LocalDateTime now);
 
     Optional<Subscription> findByUserAndVisaCenter(User user, VisaCenter visaCenter);
 
@@ -30,5 +32,14 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
             + "where s.visaCenter = :visaCenter and s.status = :status and s.validTo > :now")
     List<Subscription> findActiveByVisaCenterWithUser(@Param("visaCenter") VisaCenter visaCenter,
             @Param("status") SubscriptionStatus status,
+            @Param("now") LocalDateTime now);
+
+    @Query("select s from Subscription s "
+            + "join fetch s.user u "
+            + "where s.visaCenter = :visaCenter and s.status = :status and s.validTo > :now "
+            + "and (s.plan = :plan or (:plan = com.example.visabot.entity.SubscriptionPlan.BASIC and s.plan is null))")
+    List<Subscription> findActiveByVisaCenterWithUserAndPlan(@Param("visaCenter") VisaCenter visaCenter,
+            @Param("status") SubscriptionStatus status,
+            @Param("plan") SubscriptionPlan plan,
             @Param("now") LocalDateTime now);
 }
