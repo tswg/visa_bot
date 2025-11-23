@@ -19,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -260,19 +261,14 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
 
-        StringBuilder builder = new StringBuilder("Доступные визовые центры:\n\n");
-        for (int i = 0; i < centers.size(); i++) {
-            VisaCenter center = centers.get(i);
-            builder.append(i + 1).append(") ")
-                    .append(center.getCountry()).append(" / ")
-                    .append(center.getCity()).append(" — ")
-                    .append(center.getName()).append("\n");
+        List<String> countries = getDistinctCountries(centers);
+        if (countries.isEmpty()) {
+            sendMessage(chatId, "Нет доступных визовых центров.");
+            return;
         }
-        builder.append("\nЧтобы подписаться, отправь команду: /subscribe <номер>\n")
-                .append("Пример: /subscribe 1");
 
-        InlineKeyboardMarkup keyboardMarkup = buildCentersKeyboard(centers);
-        sendMessage(chatId, builder.toString(), keyboardMarkup);
+        InlineKeyboardMarkup keyboardMarkup = buildCountryKeyboard(countries);
+        sendMessage(chatId, "Выберите страну:", keyboardMarkup);
     }
 
     private void handleUnknown(Long chatId) {
@@ -395,8 +391,11 @@ public class TelegramBot extends TelegramLongPollingBot {
     private InlineKeyboardMarkup buildCentersKeyboard(List<VisaCenter> centers) {
         List<List<InlineKeyboardButton>> rows = centers.stream()
                 .map(center -> {
+                    String buttonText = center.getProvider() != null && !center.getProvider().isBlank()
+                            ? center.getName() + " — " + center.getProvider()
+                            : center.getName();
                     InlineKeyboardButton button = new InlineKeyboardButton();
-                    button.setText(center.getCountry() + " / " + center.getCity() + " — " + center.getName());
+                    button.setText(buttonText);
                     button.setCallbackData("subscribe:" + center.getId());
                     return List.of(button);
                 })
@@ -443,6 +442,10 @@ public class TelegramBot extends TelegramLongPollingBot {
             handleUnsubscribeCallback(callbackQuery, callbackData.substring("unsubscribe:".length()));
         } else if (callbackData.equals("unsubscribe_all")) {
             handleUnsubscribeAllCallback(callbackQuery);
+        } else if (callbackData.startsWith("country:")) {
+            handleCountrySelection(callbackQuery, callbackData.substring("country:".length()));
+        } else if (callbackData.startsWith("city:")) {
+            handleCitySelection(callbackQuery, callbackData);
         } else if (callbackData.equals("settings:toggle_notifications")) {
             handleToggleNotificationsCallback(callbackQuery);
         } else if (callbackData.equals("settings:toggle_dnd_night")) {
@@ -657,6 +660,105 @@ public class TelegramBot extends TelegramLongPollingBot {
         } catch (IllegalArgumentException e) {
             sendMessage(chatId, e.getMessage());
         }
+    }
+
+    private void handleCountrySelection(CallbackQuery callbackQuery, String country) {
+        Long chatId = callbackQuery.getMessage().getChatId();
+        List<VisaCenter> centers = visaCenterRepository.findByActiveTrue();
+        List<String> cities = getDistinctCitiesForCountry(centers, country);
+
+        if (cities.isEmpty()) {
+            sendMessage(chatId, "Для выбранной страны нет городов с активными центрами.");
+            return;
+        }
+
+        InlineKeyboardMarkup keyboardMarkup = buildCityKeyboard(country, cities);
+        String text = "Страна: " + country + "\nВыберите город:";
+        sendMessage(chatId, text, keyboardMarkup);
+    }
+
+    private void handleCitySelection(CallbackQuery callbackQuery, String callbackData) {
+        String[] parts = callbackData.split(":", 3);
+        if (parts.length < 3) {
+            answerCallback(callbackQuery, "Некорректные данные города");
+            return;
+        }
+
+        String country = parts[1];
+        String city = parts[2];
+
+        Long chatId = callbackQuery.getMessage().getChatId();
+        String normalizedCountry = normalize(country);
+        String normalizedCity = normalize(city);
+        List<VisaCenter> centers = visaCenterRepository.findByActiveTrue().stream()
+                .filter(center -> normalize(center.getCountry()).equals(normalizedCountry))
+                .filter(center -> normalize(center.getCity()).equals(normalizedCity))
+                .toList();
+
+        if (centers.isEmpty()) {
+            sendMessage(chatId, "В выбранном городе нет активных визовых центров.");
+            return;
+        }
+
+        StringBuilder builder = new StringBuilder("Доступные визовые центры:\n\n");
+        for (int i = 0; i < centers.size(); i++) {
+            builder.append(i + 1).append(") ").append(centers.get(i).getName()).append("\n");
+        }
+
+        InlineKeyboardMarkup keyboardMarkup = buildCentersKeyboard(centers);
+        sendMessage(chatId, builder.toString().trim(), keyboardMarkup);
+    }
+
+    private List<String> getDistinctCountries(List<VisaCenter> centers) {
+        return centers.stream()
+                .map(VisaCenter::getCountry)
+                .map(this::normalize)
+                .filter(country -> !country.isEmpty())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
+    private List<String> getDistinctCitiesForCountry(List<VisaCenter> centers, String country) {
+        String normalizedCountry = normalize(country);
+        return centers.stream()
+                .filter(center -> normalize(center.getCountry()).equals(normalizedCountry))
+                .map(VisaCenter::getCity)
+                .map(this::normalize)
+                .filter(city -> !city.isEmpty())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private InlineKeyboardMarkup buildCountryKeyboard(List<String> countries) {
+        List<List<InlineKeyboardButton>> rows = countries.stream()
+                .map(country -> List.of(InlineKeyboardButton.builder()
+                        .text(country)
+                        .callbackData("country:" + country)
+                        .build()))
+                .toList();
+
+        InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
+        keyboardMarkup.setKeyboard(rows);
+        return keyboardMarkup;
+    }
+
+    private InlineKeyboardMarkup buildCityKeyboard(String country, List<String> cities) {
+        List<List<InlineKeyboardButton>> rows = cities.stream()
+                .map(city -> List.of(InlineKeyboardButton.builder()
+                        .text(city)
+                        .callbackData("city:" + country + ":" + city)
+                        .build()))
+                .toList();
+
+        InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
+        keyboardMarkup.setKeyboard(rows);
+        return keyboardMarkup;
     }
 
     private void answerCallback(CallbackQuery callbackQuery, String text) {
