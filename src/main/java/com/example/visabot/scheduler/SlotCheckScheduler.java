@@ -3,7 +3,7 @@ package com.example.visabot.scheduler;
 import com.example.visabot.entity.SlotEvent;
 import com.example.visabot.entity.SlotSnapshot;
 import com.example.visabot.entity.VisaCenter;
-import com.example.visabot.notification.NotificationService;
+import com.example.visabot.service.NotificationService;
 import com.example.visabot.repository.SlotEventRepository;
 import com.example.visabot.repository.SlotSnapshotRepository;
 import com.example.visabot.repository.VisaCenterRepository;
@@ -58,6 +58,6 @@ public class SlotCheckScheduler {
         event.setSnapshot(newSnapshot);
         slotEventRepository.save(event);
 
-        notificationService.notifySubscribers(center, event);
+        notificationService.notifySubscribersAboutNewSlots(center, event);
     }
 }
