@@ -1,14 +1,19 @@
 package com.example.visabot.telegram;
 
 import com.example.visabot.config.BotProperties;
+import com.example.visabot.entity.Payment;
+import com.example.visabot.entity.PaymentMethod;
 import com.example.visabot.entity.Subscription;
 import com.example.visabot.entity.SubscriptionPlan;
 import com.example.visabot.entity.SubscriptionStatus;
 import com.example.visabot.entity.User;
 import com.example.visabot.entity.VisaCenter;
+import com.example.visabot.service.PaymentService;
+import com.example.visabot.service.SubscriptionService;
 import com.example.visabot.repository.SubscriptionRepository;
 import com.example.visabot.repository.UserRepository;
 import com.example.visabot.repository.VisaCenterRepository;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -40,6 +45,8 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final UserRepository userRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final VisaCenterRepository visaCenterRepository;
+    private final SubscriptionService subscriptionService;
+    private final PaymentService paymentService;
 
     @Override
     public String getBotUsername() {
@@ -66,12 +73,15 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         if (text.startsWith("/subscribe")) {
             handleSubscribe(chatId, text);
+        } else if (text.startsWith("/payment_success")) {
+            handlePaymentSuccess(chatId, text);
         } else {
             switch (text) {
                 case "/start" -> handleStart(chatId, username);
                 case "/status", "📝 Мои подписки" -> handleStatus(chatId);
                 case "/centers", "📍 Визовые центры" -> handleCenters(chatId);
                 case "/premium", "⭐ PREMIUM" -> handlePremium(chatId);
+                case "/buy_premium", "⭐ Купить PREMIUM" -> handleBuyPremium(chatId);
                 default -> handleUnknown(chatId);
             }
         }
@@ -201,10 +211,24 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
 
-        subscriptions.forEach(subscription -> subscription.setPlan(SubscriptionPlan.PREMIUM));
-        subscriptionRepository.saveAll(subscriptions);
+        subscriptionService.upgradeUserSubscriptionsToPremium(user);
 
         sendMessage(chatId, "Ваши активные подписки переведены на PREMIUM. Теперь уведомления будут приходить раньше обычных пользователей.");
+    }
+
+    private void handleBuyPremium(Long chatId) {
+        Optional<User> userOpt = userRepository.findByTelegramId(chatId);
+        if (userOpt.isEmpty()) {
+            sendMessage(chatId, "Пожалуйста, сначала отправьте /start");
+            return;
+        }
+
+        String text = "Выберите способ оплаты PREMIUM-подписки:\n\n"
+                + "- Карта (RUB)\n"
+                + "- СБП (RUB)\n"
+                + "- Крипто (USDT)";
+
+        sendMessage(chatId, text, buildPaymentMethodKeyboard());
     }
 
     private void handleCenters(Long chatId) {
@@ -268,9 +292,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         KeyboardRow premiumRow = new KeyboardRow();
         premiumRow.add(new KeyboardButton("⭐ PREMIUM"));
 
+        KeyboardRow buyPremiumRow = new KeyboardRow();
+        buyPremiumRow.add(new KeyboardButton("⭐ Купить PREMIUM"));
+
         ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
         keyboardMarkup.setResizeKeyboard(true);
-        keyboardMarkup.setKeyboard(List.of(centersRow, subscriptionsRow, premiumRow));
+        keyboardMarkup.setKeyboard(List.of(centersRow, subscriptionsRow, premiumRow, buyPremiumRow));
         return keyboardMarkup;
     }
 
@@ -288,6 +315,29 @@ public class TelegramBot extends TelegramLongPollingBot {
         return keyboardMarkup;
     }
 
+    private InlineKeyboardMarkup buildPaymentMethodKeyboard() {
+        InlineKeyboardButton cardButton = InlineKeyboardButton.builder()
+                .text("💳 Карта")
+                .callbackData("pay:CARD")
+                .build();
+        InlineKeyboardButton sbpButton = InlineKeyboardButton.builder()
+                .text("🏦 СБП")
+                .callbackData("pay:SBP")
+                .build();
+        InlineKeyboardButton cryptoButton = InlineKeyboardButton.builder()
+                .text("🪙 Крипто")
+                .callbackData("pay:CRYPTO")
+                .build();
+
+        InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
+        keyboardMarkup.setKeyboard(List.of(
+                List.of(cardButton),
+                List.of(sbpButton),
+                List.of(cryptoButton)
+        ));
+        return keyboardMarkup;
+    }
+
     private void handleCallback(CallbackQuery callbackQuery) {
         String callbackData = callbackQuery.getData();
         if (callbackData == null) {
@@ -296,6 +346,8 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         if (callbackData.startsWith("subscribe:")) {
             handleSubscribeCallback(callbackQuery, callbackData.substring("subscribe:".length()));
+        } else if (callbackData.startsWith("pay:")) {
+            handlePayCallback(callbackQuery, callbackData.substring("pay:".length()));
         }
     }
 
@@ -331,6 +383,76 @@ public class TelegramBot extends TelegramLongPollingBot {
         sendMessage(chatId, "Подписка на центр "
                 + center.getCountry() + " / " + center.getCity() + " — " + center.getName()
                 + " активна до " + subscription.getValidTo().format(DATE_FORMATTER));
+    }
+
+    private void handlePayCallback(CallbackQuery callbackQuery, String methodValue) {
+        PaymentMethod method;
+        try {
+            method = PaymentMethod.valueOf(methodValue);
+        } catch (IllegalArgumentException e) {
+            answerCallback(callbackQuery, "Неизвестный способ оплаты");
+            return;
+        }
+
+        Long telegramId = callbackQuery.getFrom().getId();
+        Optional<User> userOpt = userRepository.findByTelegramId(telegramId);
+        if (userOpt.isEmpty()) {
+            answerCallback(callbackQuery, "Пожалуйста, отправьте /start");
+            return;
+        }
+        User user = userOpt.get();
+
+        BigDecimal amount = switch (method) {
+            case CARD, SBP -> new BigDecimal("499");
+            case CRYPTO -> new BigDecimal("5");
+        };
+        String currency = switch (method) {
+            case CARD, SBP -> "RUB";
+            case CRYPTO -> "USDT";
+        };
+
+        Payment payment = paymentService.createPayment(user, SubscriptionPlan.PREMIUM, method, amount, currency);
+
+        String response;
+        if (method == PaymentMethod.CARD || method == PaymentMethod.SBP) {
+            response = "Для оплаты PREMIUM-подписки перейдите по ссылке:\n\n"
+                    + payment.getPaymentLink() + "\n\n"
+                    + "Сумма: " + payment.getAmount() + " " + payment.getCurrency() + "\n"
+                    + "После успешной оплаты статус может обновиться автоматически, либо используйте команду /payment_success "
+                    + payment.getId() + " (id = " + payment.getId() + ") для теста.";
+        } else {
+            response = "Для оплаты криптовалютой отправьте " + payment.getAmount() + " " + payment.getCurrency()
+                    + " по инструкции:\n\n" + payment.getDescription() + "\n\n"
+                    + "После отправки средств дождитесь подтверждения или используйте команду /payment_success "
+                    + payment.getId() + " (id = " + payment.getId() + ") для теста.";
+        }
+
+        answerCallback(callbackQuery, "Счёт создан");
+        sendMessage(callbackQuery.getMessage().getChatId(), response);
+    }
+
+    private void handlePaymentSuccess(Long chatId, String text) {
+        String[] parts = text.split("\\s+");
+        if (parts.length < 2) {
+            sendMessage(chatId, "Укажите id платежа: /payment_success <id>");
+            return;
+        }
+
+        Long paymentId;
+        try {
+            paymentId = Long.parseLong(parts[1]);
+        } catch (NumberFormatException e) {
+            sendMessage(chatId, "Некорректный id платежа");
+            return;
+        }
+
+        try {
+            paymentService.markPaymentSuccessful(paymentId);
+            sendMessage(chatId, "Платёж #" + paymentId
+                    + " помечен как успешный. Ваши активные подписки переведены на PREMIUM.");
+        } catch (IllegalArgumentException e) {
+            sendMessage(chatId, e.getMessage());
+        }
     }
 
     private void answerCallback(CallbackQuery callbackQuery, String text) {
