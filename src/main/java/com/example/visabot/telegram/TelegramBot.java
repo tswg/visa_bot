@@ -16,6 +16,7 @@ import com.example.visabot.repository.VisaCenterRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -177,8 +178,9 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
         User user = userOpt.get();
+        LocalDateTime now = LocalDateTime.now();
         List<Subscription> subscriptions = subscriptionRepository
-                .findActiveWithVisaCenter(user, SubscriptionStatus.ACTIVE, LocalDateTime.now());
+                .findByUserAndStatusAndValidToAfter(user, SubscriptionStatus.ACTIVE, now);
 
         if (subscriptions.isEmpty()) {
             sendMessage(chatId, "Активных подписок нет.");
@@ -186,13 +188,19 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
 
         StringBuilder builder = new StringBuilder("Ваши активные подписки:\n\n");
-        subscriptions.forEach(subscription -> builder.append("- ")
-                .append(subscription.getVisaCenter().getCountry()).append(" / ")
-                .append(subscription.getVisaCenter().getCity()).append(" — ")
-                .append(subscription.getVisaCenter().getName()).append(", до ")
-                .append(subscription.getValidTo().format(DATE_FORMATTER))
-                .append("\n"));
-        sendMessage(chatId, builder.toString().trim());
+        for (int i = 0; i < subscriptions.size(); i++) {
+            Subscription subscription = subscriptions.get(i);
+            SubscriptionPlan plan = subscription.getPlan() != null ? subscription.getPlan() : SubscriptionPlan.BASIC;
+            builder.append(i + 1).append(") ")
+                    .append(subscription.getVisaCenter().getCountry()).append(" / ")
+                    .append(subscription.getVisaCenter().getCity()).append(" — ")
+                    .append(subscription.getVisaCenter().getName()).append(", до ")
+                    .append(subscription.getValidTo().format(DATE_FORMATTER)).append(", план: ")
+                    .append(plan)
+                    .append("\n");
+        }
+        InlineKeyboardMarkup keyboardMarkup = buildSubscriptionsKeyboard(subscriptions);
+        sendMessage(chatId, builder.toString().trim(), keyboardMarkup);
     }
 
     private void handlePremium(Long chatId) {
@@ -282,6 +290,30 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    private InlineKeyboardMarkup buildSubscriptionsKeyboard(List<Subscription> subscriptions) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        for (Subscription subscription : subscriptions) {
+            InlineKeyboardButton button = InlineKeyboardButton.builder()
+                    .text("❌ Отменить: " + subscription.getVisaCenter().getCountry() + "/"
+                            + subscription.getVisaCenter().getCity() + " — " + subscription.getVisaCenter().getName())
+                    .callbackData("unsubscribe:" + subscription.getId())
+                    .build();
+            rows.add(List.of(button));
+        }
+
+        if (!subscriptions.isEmpty()) {
+            InlineKeyboardButton cancelAllButton = InlineKeyboardButton.builder()
+                    .text("🧹 Отменить все подписки")
+                    .callbackData("unsubscribe_all")
+                    .build();
+            rows.add(List.of(cancelAllButton));
+        }
+
+        InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
+        keyboardMarkup.setKeyboard(rows);
+        return keyboardMarkup;
+    }
+
     private ReplyKeyboardMarkup createMainMenuKeyboard() {
         KeyboardRow centersRow = new KeyboardRow();
         centersRow.add(new KeyboardButton("📍 Визовые центры"));
@@ -348,6 +380,10 @@ public class TelegramBot extends TelegramLongPollingBot {
             handleSubscribeCallback(callbackQuery, callbackData.substring("subscribe:".length()));
         } else if (callbackData.startsWith("pay:")) {
             handlePayCallback(callbackQuery, callbackData.substring("pay:".length()));
+        } else if (callbackData.startsWith("unsubscribe:")) {
+            handleUnsubscribeCallback(callbackQuery, callbackData.substring("unsubscribe:".length()));
+        } else if (callbackData.equals("unsubscribe_all")) {
+            handleUnsubscribeAllCallback(callbackQuery);
         }
     }
 
@@ -429,6 +465,71 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         answerCallback(callbackQuery, "Счёт создан");
         sendMessage(callbackQuery.getMessage().getChatId(), response);
+    }
+
+    private void handleUnsubscribeCallback(CallbackQuery callbackQuery, String subscriptionIdStr) {
+        Long subscriptionId;
+        try {
+            subscriptionId = Long.parseLong(subscriptionIdStr);
+        } catch (NumberFormatException e) {
+            answerCallback(callbackQuery, "Некорректный идентификатор подписки");
+            return;
+        }
+
+        Long telegramId = callbackQuery.getFrom().getId();
+        Optional<User> userOpt = userRepository.findByTelegramId(telegramId);
+        if (userOpt.isEmpty()) {
+            answerCallback(callbackQuery, "Пожалуйста, отправьте /start");
+            return;
+        }
+        User user = userOpt.get();
+
+        Optional<Subscription> subscriptionOpt = subscriptionRepository.findByIdAndUser(subscriptionId, user);
+        if (subscriptionOpt.isEmpty()) {
+            answerCallback(callbackQuery, "Подписка не найдена");
+            sendMessage(callbackQuery.getMessage().getChatId(), "Подписка не найдена или уже отменена.");
+            return;
+        }
+
+        Subscription subscription = subscriptionOpt.get();
+        subscription.setStatus(SubscriptionStatus.CANCELLED);
+        subscription.setValidTo(LocalDateTime.now());
+        subscriptionRepository.save(subscription);
+
+        answerCallback(callbackQuery, "Подписка отменена");
+        sendMessage(callbackQuery.getMessage().getChatId(), "Подписка на центр "
+                + subscription.getVisaCenter().getCountry() + " / "
+                + subscription.getVisaCenter().getCity() + " — "
+                + subscription.getVisaCenter().getName() + " отменена.");
+    }
+
+    private void handleUnsubscribeAllCallback(CallbackQuery callbackQuery) {
+        Long telegramId = callbackQuery.getFrom().getId();
+        Optional<User> userOpt = userRepository.findByTelegramId(telegramId);
+        if (userOpt.isEmpty()) {
+            answerCallback(callbackQuery, "Пожалуйста, отправьте /start");
+            return;
+        }
+        User user = userOpt.get();
+
+        LocalDateTime now = LocalDateTime.now();
+        List<Subscription> subscriptions = subscriptionRepository
+                .findByUserAndStatusAndValidToAfter(user, SubscriptionStatus.ACTIVE, now);
+
+        if (subscriptions.isEmpty()) {
+            answerCallback(callbackQuery, "Активных подписок нет");
+            sendMessage(callbackQuery.getMessage().getChatId(), "Активных подписок нет.");
+            return;
+        }
+
+        subscriptions.forEach(subscription -> {
+            subscription.setStatus(SubscriptionStatus.CANCELLED);
+            subscription.setValidTo(now);
+        });
+        subscriptionRepository.saveAll(subscriptions);
+
+        answerCallback(callbackQuery, "Все подписки отменены");
+        sendMessage(callbackQuery.getMessage().getChatId(), "Все ваши активные подписки отменены.");
     }
 
     private void handlePaymentSuccess(Long chatId, String text) {
