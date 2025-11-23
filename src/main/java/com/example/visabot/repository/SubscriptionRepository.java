@@ -13,4 +13,6 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     List<Subscription> findByVisaCenterAndStatusAndValidToAfter(VisaCenter visaCenter, SubscriptionStatus status, LocalDateTime now);
 
     Optional<Subscription> findByUserAndVisaCenter(User user, VisaCenter visaCenter);
+
+    List<Subscription> findByUserAndStatusAndValidToAfter(User user, SubscriptionStatus status, LocalDateTime now);
 }
