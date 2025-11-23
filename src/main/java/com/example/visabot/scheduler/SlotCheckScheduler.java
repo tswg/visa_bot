@@ -10,7 +10,9 @@ import com.example.visabot.scraper.SlotScraperFactory;
 import com.example.visabot.service.NotificationService;
 import com.example.visabot.service.SlotData;
 import com.example.visabot.service.SlotScraper;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -59,8 +61,16 @@ public class SlotCheckScheduler {
         event.setVisaCenter(center);
         event.setSnapshot(newSnapshot);
         event.setDescription(slotData.toSummaryString());
+        event.setEarliestDate(extractEarliestDate(slotData));
         slotEventRepository.save(event);
 
         notificationService.notifySubscribersAboutNewSlots(center, event);
+    }
+
+    private LocalDate extractEarliestDate(SlotData slotData) {
+        return Optional.ofNullable(slotData.getAvailableDates())
+                .filter(dates -> !dates.isEmpty())
+                .flatMap(dates -> dates.stream().min(LocalDate::compareTo))
+                .orElse(null);
     }
 }

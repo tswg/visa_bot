@@ -13,6 +13,7 @@ import com.example.visabot.repository.NotificationRepository;
 import com.example.visabot.repository.SubscriptionRepository;
 import com.example.visabot.repository.UserRepository;
 import com.example.visabot.telegram.TelegramBot;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
@@ -65,6 +66,14 @@ public class NotificationService {
 
         if (Boolean.TRUE.equals(user.getDndNightEnabled()) && isNightNow()) {
             log.info("Skipping notification for user {} due to notification settings", user.getId());
+            return;
+        }
+
+        LocalDate userFromDate = user.getNotifyFromDate();
+        LocalDate eventEarliest = event.getEarliestDate();
+        if (userFromDate != null && eventEarliest != null && eventEarliest.isBefore(userFromDate)) {
+            log.info("Skipping notification for user {} due to notifyFromDate {} (earliest event date: {})",
+                    user.getId(), userFromDate, eventEarliest);
             return;
         }
 
