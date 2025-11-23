@@ -14,6 +14,7 @@ import com.example.visabot.repository.SubscriptionRepository;
 import com.example.visabot.repository.UserRepository;
 import com.example.visabot.repository.VisaCenterRepository;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -42,6 +43,7 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 public class TelegramBot extends TelegramLongPollingBot {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
+    private static final DateTimeFormatter DATE_ONLY_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
     private final BotProperties botProperties;
     private final UserRepository userRepository;
@@ -353,10 +355,12 @@ public class TelegramBot extends TelegramLongPollingBot {
     private String buildSettingsText(User user) {
         boolean notificationsEnabled = isNotificationsEnabled(user);
         boolean dndEnabled = isDndNightEnabled(user);
+        String dateFilter = formatNotifyFromDate(user);
 
         return "Настройки уведомлений:\n\n"
                 + "Уведомления: " + (notificationsEnabled ? "ВКЛ" : "ВЫКЛ") + "\n"
-                + "Не беспокоить ночью (23:00–08:00): " + (dndEnabled ? "ВКЛ" : "ВЫКЛ");
+                + "Не беспокоить ночью (23:00–08:00): " + (dndEnabled ? "ВКЛ" : "ВЫКЛ") + "\n"
+                + "Фильтр по дате (минимальная дата слота): " + dateFilter;
     }
 
     private InlineKeyboardMarkup buildSettingsKeyboard(User user) {
@@ -375,9 +379,36 @@ public class TelegramBot extends TelegramLongPollingBot {
                 .callbackData("settings:toggle_dnd_night")
                 .build();
 
+        InlineKeyboardButton dateTodayButton = InlineKeyboardButton.builder()
+                .text("📅 С сегодня")
+                .callbackData("settings:set_date:today")
+                .build();
+        InlineKeyboardButton datePlus7Button = InlineKeyboardButton.builder()
+                .text("📅 +7 дней")
+                .callbackData("settings:set_date:7d")
+                .build();
+        InlineKeyboardButton datePlus30Button = InlineKeyboardButton.builder()
+                .text("📅 +30 дней")
+                .callbackData("settings:set_date:30d")
+                .build();
+        InlineKeyboardButton clearDateButton = InlineKeyboardButton.builder()
+                .text("♻ Сбросить фильтр")
+                .callbackData("settings:set_date:clear")
+                .build();
+
         InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
-        keyboardMarkup.setKeyboard(List.of(List.of(toggleNotificationsButton), List.of(toggleDndNightButton)));
+        keyboardMarkup.setKeyboard(List.of(
+                List.of(toggleNotificationsButton),
+                List.of(toggleDndNightButton),
+                List.of(dateTodayButton, datePlus7Button),
+                List.of(datePlus30Button, clearDateButton)
+        ));
         return keyboardMarkup;
+    }
+
+    private String formatNotifyFromDate(User user) {
+        LocalDate notifyFromDate = user.getNotifyFromDate();
+        return notifyFromDate == null ? "не установлен" : notifyFromDate.format(DATE_ONLY_FORMATTER);
     }
 
     private boolean isNotificationsEnabled(User user) {
@@ -450,6 +481,8 @@ public class TelegramBot extends TelegramLongPollingBot {
             handleToggleNotificationsCallback(callbackQuery);
         } else if (callbackData.equals("settings:toggle_dnd_night")) {
             handleToggleDndNightCallback(callbackQuery);
+        } else if (callbackData.startsWith("settings:set_date:")) {
+            handleSetNotifyFromDateCallback(callbackQuery, callbackData.substring("settings:set_date:".length()));
         }
     }
 
@@ -634,6 +667,47 @@ public class TelegramBot extends TelegramLongPollingBot {
         String response = currentlyEnabled
                 ? "Режим 'Ночью не беспокоить' выключен."
                 : "Режим 'Ночью не беспокоить' включен.";
+        answerCallback(callbackQuery, response);
+        sendSettingsMessage(callbackQuery.getMessage().getChatId(), user);
+    }
+
+    private void handleSetNotifyFromDateCallback(CallbackQuery callbackQuery, String suffix) {
+        Long telegramId = callbackQuery.getFrom().getId();
+        Optional<User> userOpt = userRepository.findByTelegramId(telegramId);
+        if (userOpt.isEmpty()) {
+            answerCallback(callbackQuery, "Пожалуйста, отправьте /start");
+            return;
+        }
+
+        User user = userOpt.get();
+        LocalDate targetDate;
+        String response;
+        switch (suffix) {
+            case "today" -> {
+                targetDate = LocalDate.now();
+                response = "Фильтр по дате установлен с сегодня.";
+            }
+            case "7d" -> {
+                targetDate = LocalDate.now().plusDays(7);
+                response = "Фильтр по дате установлен с +7 дней.";
+            }
+            case "30d" -> {
+                targetDate = LocalDate.now().plusDays(30);
+                response = "Фильтр по дате установлен с +30 дней.";
+            }
+            case "clear" -> {
+                targetDate = null;
+                response = "Фильтр по дате сброшен.";
+            }
+            default -> {
+                answerCallback(callbackQuery, "Некорректное значение даты");
+                return;
+            }
+        }
+
+        user.setNotifyFromDate(targetDate);
+        userRepository.save(user);
+
         answerCallback(callbackQuery, response);
         sendSettingsMessage(callbackQuery.getMessage().getChatId(), user);
     }

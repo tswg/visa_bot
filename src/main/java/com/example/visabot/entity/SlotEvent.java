@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
@@ -32,6 +33,8 @@ public class SlotEvent {
     private SlotSnapshot snapshot;
 
     private String description;
+
+    private LocalDate earliestDate;
 
     @CreationTimestamp
     private LocalDateTime createdAt;
