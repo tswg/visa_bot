@@ -193,7 +193,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         sendMessage(chatId, "Неизвестная команда. Доступные: /start, /subscribe, /status, /centers");
     }
 
-    private void sendMessage(Long chatId, String text) {
+    public void sendMessage(Long chatId, String text) {
         SendMessage message = SendMessage.builder()
                 .chatId(chatId.toString())
                 .text(text)
