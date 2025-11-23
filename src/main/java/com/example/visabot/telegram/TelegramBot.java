@@ -19,7 +19,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -446,7 +445,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         } else if (callbackData.startsWith("country:")) {
             handleCountrySelection(callbackQuery, callbackData.substring("country:".length()));
         } else if (callbackData.startsWith("city:")) {
-            handleCitySelection(callbackQuery, callbackData.substring("city:".length()));
+            handleCitySelection(callbackQuery, callbackData);
         } else if (callbackData.equals("settings:toggle_notifications")) {
             handleToggleNotificationsCallback(callbackQuery);
         } else if (callbackData.equals("settings:toggle_dnd_night")) {
@@ -678,8 +677,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         sendMessage(chatId, text, keyboardMarkup);
     }
 
-    private void handleCitySelection(CallbackQuery callbackQuery, String cityData) {
-        String[] parts = ("city:" + cityData).split(":", 3);
+    private void handleCitySelection(CallbackQuery callbackQuery, String callbackData) {
+        String[] parts = callbackData.split(":", 3);
         if (parts.length < 3) {
             answerCallback(callbackQuery, "Некорректные данные города");
             return;
@@ -689,9 +688,11 @@ public class TelegramBot extends TelegramLongPollingBot {
         String city = parts[2];
 
         Long chatId = callbackQuery.getMessage().getChatId();
+        String normalizedCountry = normalize(country);
+        String normalizedCity = normalize(city);
         List<VisaCenter> centers = visaCenterRepository.findByActiveTrue().stream()
-                .filter(center -> center.getCountry().equals(country))
-                .filter(center -> center.getCity().equals(city))
+                .filter(center -> normalize(center.getCountry()).equals(normalizedCountry))
+                .filter(center -> normalize(center.getCity()).equals(normalizedCity))
                 .toList();
 
         if (centers.isEmpty()) {
@@ -711,8 +712,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     private List<String> getDistinctCountries(List<VisaCenter> centers) {
         return centers.stream()
                 .map(VisaCenter::getCountry)
-                .filter(Objects::nonNull)
-                .map(String::trim)
+                .map(this::normalize)
                 .filter(country -> !country.isEmpty())
                 .distinct()
                 .sorted()
@@ -720,15 +720,19 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private List<String> getDistinctCitiesForCountry(List<VisaCenter> centers, String country) {
+        String normalizedCountry = normalize(country);
         return centers.stream()
-                .filter(center -> country.equals(center.getCountry()))
+                .filter(center -> normalize(center.getCountry()).equals(normalizedCountry))
                 .map(VisaCenter::getCity)
-                .filter(Objects::nonNull)
-                .map(String::trim)
+                .map(this::normalize)
                 .filter(city -> !city.isEmpty())
                 .distinct()
                 .sorted()
                 .collect(Collectors.toList());
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private InlineKeyboardMarkup buildCountryKeyboard(List<String> countries) {
