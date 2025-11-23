@@ -73,7 +73,8 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         String welcome = "Привет! Я бот, который уведомляет, когда появляются свободные слоты в визовых центрах.\n"
                 + "Доступен тестовый центр: Finland / Helsinki.\n"
-                + "Команды: /subscribe — подписка, /status — статус подписки.";
+                + "Команды: /centers — список доступных центров, /subscribe — подписка, /status — статус подписки.\n"
+                + "Можно подписаться на номер центра через /subscribe <номер>.";
         sendMessage(chatId, welcome);
     }
 
