@@ -16,8 +16,16 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 @Component
@@ -44,6 +52,10 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
+        if (update.hasCallbackQuery()) {
+            handleCallback(update.getCallbackQuery());
+            return;
+        }
         if (update.getMessage() == null || !update.getMessage().hasText()) {
             return;
         }
@@ -56,8 +68,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         } else {
             switch (text) {
                 case "/start" -> handleStart(chatId, username);
-                case "/status" -> handleStatus(chatId);
-                case "/centers" -> handleCenters(chatId);
+                case "/status", "📝 Мои подписки" -> handleStatus(chatId);
+                case "/centers", "📍 Визовые центры" -> handleCenters(chatId);
                 default -> handleUnknown(chatId);
             }
         }
@@ -75,7 +87,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                 + "Доступен тестовый центр: Finland / Helsinki.\n"
                 + "Команды: /centers — список доступных центров, /subscribe — подписка, /status — статус подписки.\n"
                 + "Можно подписаться на номер центра через /subscribe <номер>.";
-        sendMessage(chatId, welcome);
+        sendMessage(chatId, welcome, createMainMenuKeyboard());
     }
 
     private void handleSubscribe(Long chatId, String text) {
@@ -186,7 +198,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         builder.append("\nЧтобы подписаться, отправь команду: /subscribe <номер>\n")
                 .append("Пример: /subscribe 1");
 
-        sendMessage(chatId, builder.toString());
+        InlineKeyboardMarkup keyboardMarkup = buildCentersKeyboard(centers);
+        sendMessage(chatId, builder.toString(), keyboardMarkup);
     }
 
     private void handleUnknown(Long chatId) {
@@ -202,6 +215,103 @@ public class TelegramBot extends TelegramLongPollingBot {
             execute(message);
         } catch (TelegramApiException e) {
             log.error("Failed to send message to chat {}", chatId, e);
+        }
+    }
+
+    public void sendMessage(Long chatId, String text, ReplyMarkup replyMarkup) {
+        SendMessage message = SendMessage.builder()
+                .chatId(chatId.toString())
+                .text(text)
+                .replyMarkup(replyMarkup)
+                .build();
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            log.error("Failed to send message to chat {}", chatId, e);
+        }
+    }
+
+    private ReplyKeyboardMarkup createMainMenuKeyboard() {
+        KeyboardRow centersRow = new KeyboardRow();
+        centersRow.add(new KeyboardButton("📍 Визовые центры"));
+
+        KeyboardRow subscriptionsRow = new KeyboardRow();
+        subscriptionsRow.add(new KeyboardButton("📝 Мои подписки"));
+
+        ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
+        keyboardMarkup.setResizeKeyboard(true);
+        keyboardMarkup.setKeyboard(List.of(centersRow, subscriptionsRow));
+        return keyboardMarkup;
+    }
+
+    private InlineKeyboardMarkup buildCentersKeyboard(List<VisaCenter> centers) {
+        List<List<InlineKeyboardButton>> rows = centers.stream()
+                .map(center -> {
+                    InlineKeyboardButton button = new InlineKeyboardButton();
+                    button.setText(center.getCountry() + " / " + center.getCity() + " — " + center.getName());
+                    button.setCallbackData("subscribe:" + center.getId());
+                    return List.of(button);
+                })
+                .toList();
+        InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
+        keyboardMarkup.setKeyboard(rows);
+        return keyboardMarkup;
+    }
+
+    private void handleCallback(CallbackQuery callbackQuery) {
+        String callbackData = callbackQuery.getData();
+        if (callbackData == null) {
+            return;
+        }
+
+        if (callbackData.startsWith("subscribe:")) {
+            handleSubscribeCallback(callbackQuery, callbackData.substring("subscribe:".length()));
+        }
+    }
+
+    private void handleSubscribeCallback(CallbackQuery callbackQuery, String centerIdStr) {
+        Long centerId;
+        try {
+            centerId = Long.parseLong(centerIdStr);
+        } catch (NumberFormatException e) {
+            answerCallback(callbackQuery, "Некорректный идентификатор центра");
+            return;
+        }
+
+        Optional<VisaCenter> centerOpt = visaCenterRepository.findById(centerId);
+        if (centerOpt.isEmpty()) {
+            answerCallback(callbackQuery, "Визовый центр не найден");
+            return;
+        }
+        VisaCenter center = centerOpt.get();
+
+        Long telegramId = callbackQuery.getFrom().getId();
+        String username = callbackQuery.getFrom().getUserName();
+        User user = userRepository.findByTelegramId(telegramId).orElseGet(() -> {
+            User newUser = new User();
+            newUser.setTelegramId(telegramId);
+            newUser.setUsername(username);
+            return userRepository.save(newUser);
+        });
+
+        Subscription subscription = upsertSubscription(user, center);
+        answerCallback(callbackQuery, "Подписка обновлена");
+
+        Long chatId = callbackQuery.getMessage().getChatId();
+        sendMessage(chatId, "Подписка на центр "
+                + center.getCountry() + " / " + center.getCity() + " — " + center.getName()
+                + " активна до " + subscription.getValidTo().format(DATE_FORMATTER));
+    }
+
+    private void answerCallback(CallbackQuery callbackQuery, String text) {
+        AnswerCallbackQuery answer = AnswerCallbackQuery.builder()
+                .callbackQueryId(callbackQuery.getId())
+                .text(text)
+                .build();
+        try {
+            execute(answer);
+        } catch (TelegramApiException e) {
+            log.error("Failed to answer callback {}", callbackQuery.getId(), e);
         }
     }
 }
