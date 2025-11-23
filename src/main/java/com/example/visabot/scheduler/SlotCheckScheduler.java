@@ -56,6 +56,7 @@ public class SlotCheckScheduler {
         SlotEvent event = new SlotEvent();
         event.setVisaCenter(center);
         event.setSnapshot(newSnapshot);
+        event.setDescription(slotData.getRawData());
         slotEventRepository.save(event);
 
         notificationService.notifySubscribersAboutNewSlots(center, event);

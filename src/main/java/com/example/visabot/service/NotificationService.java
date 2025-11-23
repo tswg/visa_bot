@@ -73,9 +73,11 @@ public class NotificationService {
         VisaCenter center = event.getVisaCenter();
         String centerInfo = String.format("%s / %s — %s", center.getCountry(), center.getCity(), center.getName());
 
-        String description = Optional.ofNullable(event.getSnapshot())
-                .map(SlotSnapshot::getRawData)
+        String description = Optional.ofNullable(event.getDescription())
                 .filter(StringUtils::hasText)
+                .or(() -> Optional.ofNullable(event.getSnapshot())
+                        .map(SlotSnapshot::getRawData)
+                        .filter(StringUtils::hasText))
                 .orElse("Найдены новые свободные слоты.");
 
         return "✈️ Появились новые слоты!\n\n" +
