@@ -3,10 +3,11 @@ package com.example.visabot.scheduler;
 import com.example.visabot.entity.SlotEvent;
 import com.example.visabot.entity.SlotSnapshot;
 import com.example.visabot.entity.VisaCenter;
-import com.example.visabot.service.NotificationService;
 import com.example.visabot.repository.SlotEventRepository;
 import com.example.visabot.repository.SlotSnapshotRepository;
 import com.example.visabot.repository.VisaCenterRepository;
+import com.example.visabot.scraper.SlotScraperFactory;
+import com.example.visabot.service.NotificationService;
 import com.example.visabot.service.SlotData;
 import com.example.visabot.service.SlotScraper;
 import java.util.List;
@@ -21,7 +22,7 @@ import org.springframework.stereotype.Service;
 public class SlotCheckScheduler {
 
     private final VisaCenterRepository visaCenterRepository;
-    private final SlotScraper slotScraper;
+    private final SlotScraperFactory slotScraperFactory;
     private final SlotSnapshotRepository slotSnapshotRepository;
     private final SlotEventRepository slotEventRepository;
     private final NotificationService notificationService;
@@ -31,7 +32,8 @@ public class SlotCheckScheduler {
         List<VisaCenter> centers = visaCenterRepository.findByActiveTrue();
         for (VisaCenter center : centers) {
             try {
-                SlotData current = slotScraper.fetchSlots(center);
+                SlotScraper scraper = slotScraperFactory.getScraperFor(center);
+                SlotData current = scraper.fetchSlots(center);
                 processSlotData(center, current);
             } catch (Exception e) {
                 log.error("Error checking center {}", center.getId(), e);
@@ -43,20 +45,20 @@ public class SlotCheckScheduler {
         SlotSnapshot lastSnapshot = slotSnapshotRepository
                 .findTopByVisaCenterOrderByCreatedAtDesc(center)
                 .orElse(null);
-        if (lastSnapshot != null && slotData.getRawDataHash().equals(lastSnapshot.getRawDataHash())) {
+        if (lastSnapshot != null && slotData.hash().equals(lastSnapshot.getRawDataHash())) {
             return;
         }
 
         SlotSnapshot newSnapshot = new SlotSnapshot();
         newSnapshot.setVisaCenter(center);
-        newSnapshot.setRawData(slotData.getRawData());
-        newSnapshot.setRawDataHash(slotData.getRawDataHash());
+        newSnapshot.setRawData(slotData.toHumanReadableString());
+        newSnapshot.setRawDataHash(slotData.hash());
         slotSnapshotRepository.save(newSnapshot);
 
         SlotEvent event = new SlotEvent();
         event.setVisaCenter(center);
         event.setSnapshot(newSnapshot);
-        event.setDescription(slotData.getRawData());
+        event.setDescription(slotData.toSummaryString());
         slotEventRepository.save(event);
 
         notificationService.notifySubscribersAboutNewSlots(center, event);
