@@ -26,6 +26,10 @@ public class User {
 
     private String username;
 
+    private Boolean notificationsEnabled;
+
+    private Boolean dndNightEnabled;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;

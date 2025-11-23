@@ -14,6 +14,7 @@ import com.example.visabot.repository.SubscriptionRepository;
 import com.example.visabot.repository.UserRepository;
 import com.example.visabot.telegram.TelegramBot;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -56,6 +57,17 @@ public class NotificationService {
             return;
         }
 
+        Boolean notificationsEnabled = user.getNotificationsEnabled();
+        if (notificationsEnabled != null && !notificationsEnabled) {
+            log.info("Skipping notification for user {} due to notification settings", user.getId());
+            return;
+        }
+
+        if (Boolean.TRUE.equals(user.getDndNightEnabled()) && isNightNow()) {
+            log.info("Skipping notification for user {} due to notification settings", user.getId());
+            return;
+        }
+
         String message = buildMessage(event);
 
         Notification notification = new Notification();
@@ -70,6 +82,11 @@ public class NotificationService {
                 event.getVisaCenter().getId(), subscription.getPlan());
 
         notificationRepository.save(notification);
+    }
+
+    private boolean isNightNow() {
+        LocalTime now = LocalTime.now();
+        return now.isAfter(LocalTime.of(23, 0)) || now.isBefore(LocalTime.of(8, 0));
     }
 
     private User resolveUser(Subscription subscription) {
