@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class VisaCenterDataInitializer implements CommandLineRunner {
 
     private final VisaCenterRepository visaCenterRepository;
