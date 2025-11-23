@@ -150,7 +150,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
         User user = userOpt.get();
         List<Subscription> subscriptions = subscriptionRepository
-                .findByUserAndStatusAndValidToAfter(user, SubscriptionStatus.ACTIVE, LocalDateTime.now());
+                .findActiveWithVisaCenter(user, SubscriptionStatus.ACTIVE, LocalDateTime.now());
 
         if (subscriptions.isEmpty()) {
             sendMessage(chatId, "Активных подписок нет.");

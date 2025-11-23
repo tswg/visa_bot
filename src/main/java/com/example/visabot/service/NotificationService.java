@@ -32,7 +32,7 @@ public class NotificationService {
 
     public void notifySubscribersAboutNewSlots(VisaCenter center, SlotEvent event) {
         List<Subscription> subscriptions = subscriptionRepository
-                .findByVisaCenterAndStatusAndValidToAfter(center, SubscriptionStatus.ACTIVE, LocalDateTime.now());
+                .findActiveByVisaCenterWithUser(center, SubscriptionStatus.ACTIVE, LocalDateTime.now());
 
         for (Subscription subscription : subscriptions) {
             sendNotification(subscription, event);
