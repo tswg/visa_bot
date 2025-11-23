@@ -106,17 +106,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
 
         VisaCenter center = centers.get(index - 1);
-        Subscription subscription = subscriptionRepository
-                .findByUserAndVisaCenter(user, center)
-                .orElseGet(() -> {
-                    Subscription sub = new Subscription();
-                    sub.setUser(user);
-                    sub.setVisaCenter(center);
-                    return sub;
-                });
-        subscription.setValidTo(LocalDateTime.now().plusDays(7));
-        subscription.setStatus(SubscriptionStatus.ACTIVE);
-        subscriptionRepository.save(subscription);
+        Subscription subscription = upsertSubscription(user, center);
 
         sendMessage(chatId, "Подписка на центр "
                 + center.getCountry() + " / " + center.getCity() + " — " + center.getName()
@@ -131,6 +121,14 @@ public class TelegramBot extends TelegramLongPollingBot {
             return;
         }
         VisaCenter center = centerOpt.get();
+        Subscription subscription = upsertSubscription(user, center);
+
+        sendMessage(chatId, "Подписка на центр "
+                + center.getCountry() + " / " + center.getCity() + " — " + center.getName()
+                + " активна до " + subscription.getValidTo().format(DATE_FORMATTER));
+    }
+
+    private Subscription upsertSubscription(User user, VisaCenter center) {
         Subscription subscription = subscriptionRepository
                 .findByUserAndVisaCenter(user, center)
                 .orElseGet(() -> {
@@ -141,9 +139,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                 });
         subscription.setValidTo(LocalDateTime.now().plusDays(7));
         subscription.setStatus(SubscriptionStatus.ACTIVE);
-        subscriptionRepository.save(subscription);
-
-        sendMessage(chatId, "Подписка активна до " + subscription.getValidTo().format(DATE_FORMATTER));
+        return subscriptionRepository.save(subscription);
     }
 
     private void handleStatus(Long chatId) {
