@@ -31,6 +31,8 @@ public class SlotEvent {
     @JoinColumn(name = "slot_snapshot_id")
     private SlotSnapshot snapshot;
 
+    private String description;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 }
