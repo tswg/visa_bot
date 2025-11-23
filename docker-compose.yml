@@ -1,0 +1,29 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: visa_bot
+      POSTGRES_USER: visa_bot
+      POSTGRES_PASSWORD: visa_bot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    depends_on:
+      - db
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/visa_bot
+      SPRING_DATASOURCE_USERNAME: visa_bot
+      SPRING_DATASOURCE_PASSWORD: visa_bot
+      TELEGRAM_BOT_USERNAME: your_bot_username_here
+      TELEGRAM_BOT_TOKEN: your_bot_token_here
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:
